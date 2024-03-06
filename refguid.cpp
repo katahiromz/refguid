@@ -14,7 +14,7 @@
 
 void show_version(void)
 {
-    std::puts("refguid version 1.4 by katahiromz");
+    std::puts("refguid version 1.5 by katahiromz");
 }
 
 void usage(void)
@@ -87,7 +87,7 @@ mstr_split(T_STR_CONTAINER& container,
     container.push_back(str.substr(i));
 }
 
-std::wstring BytesTextFromCLSID(REFCLSID clsid)
+std::wstring getBytesTextFromGUID(REFCLSID clsid)
 {
     std::wstring ret;
     const BYTE *pb = (LPBYTE)&clsid;
@@ -291,7 +291,7 @@ std::wstring getAnalysisStringFromGUID(REFCLSID guid, LPCWSTR name)
     ret += szCLSID;
     ret += L"\n\n";
 
-    auto strBytes = BytesTextFromCLSID(guid);
+    auto strBytes = getBytesTextFromGUID(guid);
     ret += L"Bytes: ";
     ret += strBytes;
     ret += L"\n\n";
@@ -401,6 +401,14 @@ BOOL doFilterByString(std::vector<ENTRY>& entries, std::wstring text)
         if (str.find(text) != str.npos)
         {
             got.push_back(entry);
+            continue;
+        }
+        str = getBytesTextFromGUID(entry.guid);
+        ::CharUpperW(&str[0]);
+        if (str.find(text) != str.npos)
+        {
+            got.push_back(entry);
+            continue;
         }
     }
 
@@ -458,7 +466,7 @@ void refguid_unittest(void)
     std::wstring str = L"{000214F9-0000-0000-C000-000000000046}";
     assert(str == szCLSID);
 
-    auto strBytes = BytesTextFromCLSID(guid);
+    auto strBytes = getBytesTextFromGUID(guid);
     assert(strBytes == L"F9 14 02 00 00 00 00 00 C0 00 00 00 00 00 00 46");
 
     auto struct_str = getStructFromGUID(guid);

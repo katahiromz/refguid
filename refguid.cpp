@@ -14,7 +14,7 @@
 
 void show_version(void)
 {
-    std::puts("refguid version 1.5 by katahiromz");
+    std::puts("refguid version 1.6 by katahiromz");
 }
 
 void usage(void)
@@ -518,10 +518,12 @@ int _wmain(int argc, wchar_t **argv)
             auto define_guid = getDefineGUIDFromGUID(entry.guid, entry.name.c_str());
             std::printf("%ls\n", define_guid.c_str());
         }
+        return 0;
     }
     else if (lstrcmpiW(arg.c_str(), L"--generate") == 0)
     {
         RandomData(guid);
+        bSuccess = TRUE;
     }
     else if (lstrcmpiW(arg.c_str(), L"--search") == 0)
     {

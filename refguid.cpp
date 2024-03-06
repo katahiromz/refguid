@@ -14,7 +14,7 @@
 
 void show_version(void)
 {
-    std::puts("refguid version 1.1 by katahiromz");
+    std::puts("refguid version 1.2 by katahiromz");
 }
 
 void usage(void)
@@ -387,12 +387,15 @@ BOOL doFilterByGuid(std::vector<ENTRY>& entries, const GUID& guid)
     return !entries.empty();
 }
 
-BOOL doFilterByString(std::vector<ENTRY>& entries, const std::wstring& text)
+BOOL doFilterByString(std::vector<ENTRY>& entries, std::wstring text)
 {
+    ::CharUpperW(&text[0]);
+
     std::vector<ENTRY> got;
     for (auto& entry : entries)
     {
         auto str = getDefineGUIDFromGUID(entry.guid, entry.name.c_str());
+        ::CharUpperW(&str[0]);
         if (str.find(text) != str.npos)
         {
             got.push_back(entry);

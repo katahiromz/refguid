@@ -14,7 +14,7 @@
 
 void show_version(void)
 {
-    std::puts("refguid version 1.2 by katahiromz");
+    std::puts("refguid version 1.3 by katahiromz");
 }
 
 void usage(void)
@@ -561,6 +561,12 @@ int _wmain(int argc, wchar_t **argv)
         else
         {
             bSuccess = bSearch = TRUE;
+            if (entries.size() == 1)
+            {
+                bSearch = FALSE;
+                guid = entries[0].guid;
+                name = entries[0].name;
+            }
         }
     }
 

@@ -5,11 +5,13 @@ to search, convert, and/or generate GUIDs.
 
 ## Usage
 
-refguid guid_name
-refguid "guid_string"
-refguid --search "search_string"
-refguid --list
-refguid --generate
+    refguid guid_name
+    refguid "guid_string"
+    refguid --search "search_string"
+    refguid --list
+    refguid --generate
+    refguid --help
+    refguid --version
 
 ## License
 

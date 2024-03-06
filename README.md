@@ -11,6 +11,8 @@ refguid "guid_string"
 refguid --search "search_string"
 refguid --list
 refguid --generate
+refguid --help
+refguid --version
 ```
 
 ## License

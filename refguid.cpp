@@ -14,7 +14,7 @@
 
 void show_version(void)
 {
-    std::puts("refguid version 1.3 by katahiromz");
+    std::puts("refguid version 1.4 by katahiromz");
 }
 
 void usage(void)
@@ -23,7 +23,9 @@ void usage(void)
               "       refguid \"guid_string\"\n"
               "       refguid --search \"search_string\"\n"
               "       refguid --list\n"
-              "       refguid --generate");
+              "       refguid --generate\n"
+              "       refguid --help\n"
+              "       refguid --version");
 }
 
 template <typename T_CHAR>

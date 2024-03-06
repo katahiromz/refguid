@@ -15,6 +15,10 @@ refguid --help
 refguid --version
 ```
 
+## Screenshot
+
+![image](img/screenshot.png)
+
 ## License
 
 - MIT

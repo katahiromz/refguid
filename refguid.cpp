@@ -14,7 +14,7 @@
 
 void show_version(void)
 {
-    std::puts("refguid version 1.6 by katahiromz");
+    std::puts("refguid version 1.7 by katahiromz");
 }
 
 void usage(void)
@@ -609,14 +609,9 @@ int _wmain(int argc, wchar_t **argv)
     }
     else if (doFilterByGuid(entries, guid))
     {
-        bool first = true;
         for (auto& entry : entries)
         {
-            if (first)
-                std::printf("%4s: %ls\n", "Name", entry.name.c_str());
-            else
-                std::printf("%4s: %ls\n", "", entry.name.c_str());
-            first = false;
+            std::printf("Name: %ls\n", entry.name.c_str());
         }
         std::puts("");
         if (name.empty())

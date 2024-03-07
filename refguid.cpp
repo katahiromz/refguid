@@ -10,23 +10,53 @@
 #include <vector>
 #include <cstdio>
 #include <cassert>
+#include <cctype>
+#include <cwchar>
 #include <strsafe.h>
+
+BOOL g_bSearch = FALSE;
+BOOL g_bList = FALSE;
+INT g_nGenerate = 0;
 
 void show_version(void)
 {
-    std::puts("refguid version 1.7 by katahiromz");
+    std::puts("refguid version 1.9.0 by katahiromz");
 }
 
 void usage(void)
 {
-    std::puts("Usage: refguid guid_name\n"
-              "       refguid \"guid_string\"\n"
-              "       refguid --search \"search_string\"\n"
-              "       refguid --list\n"
-              "       refguid --generate\n"
-              "       refguid --help\n"
-              "       refguid --version");
+    std::printf(
+        "Usage:\n"
+        "  refguid --search \"STRING\"\n"
+        "  refguid IID_IDeskBand\n"
+        "  refguid \"{EB0FE172-1A3A-11D0-89B3-00A0C90A90AC}\"\n"
+        "  refguid \"72 E1 0F EB 3A 1A D0 11 89 B3 00 A0 C9 0A 90 AC\"\n"
+        "  refguid \"{ 0xEB0FE172, 0x1A3A, 0x11D0, { 0x89, 0xB3, 0x00, 0xA0, 0xC9, 0x0A,\n"
+        "             0x90, 0xAC } }\"\n"
+        "  refguid \"DEFINE_GUID(IID_IDeskBand, 0xEB0FE172, 0x1A3A, 0x11D0, 0x89, 0xB3,\n"
+        "                       0x00, 0xA0, 0xC9, 0x0A, 0x90, 0xAC);\"\n"
+        "  refguid --list\n"
+        "  refguid --generate NUMBER\n"
+        "  refguid --help\n"
+        "  refguid --version\n"
+        "\n"
+        "You can specify multiple GUIDs.\n");
 }
+
+typedef enum RET
+{
+    RET_DONE = 0,
+    RET_FAILED = -1,
+    RET_SUCCESS = +1,
+} RET;
+
+typedef struct tagENTRY
+{
+    std::wstring name;
+    GUID guid;
+} ENTRY, *PENTRY;
+
+typedef std::vector<ENTRY> ENTRIES;
 
 template <typename T_CHAR>
 inline void mstr_trim(std::basic_string<T_CHAR>& str, const T_CHAR* spaces)
@@ -102,35 +132,41 @@ std::wstring getBytesTextFromGUID(REFCLSID clsid)
     return ret;
 }
 
-BOOL getGUIDFromStructStr(GUID& guid, std::wstring arg)
+BOOL getGUIDFromStructStr(GUID& guid, std::wstring str)
 {
-    mstr_trim(arg, L" \t");
-    if (arg.size() && arg[arg.size() - 1] == L';')
-        arg.erase(arg.size() - 1, 1);
-    mstr_trim(arg, L" \t");
-    if (arg.size() && arg[0] == L'{')
-        arg.erase(0, 1);
-    mstr_trim(arg, L" \t");
-    if (arg.size() && arg[arg.size() - 1] == L'}')
-        arg.erase(arg.size() - 1, 1);
-    mstr_trim(arg, L" \t");
-    if (arg.size() && arg[arg.size() - 1] == L'}')
-        arg.erase(arg.size() - 1, 1);
+    mstr_trim(str, L" \t\r\n");
+    if (str.size() && str[str.size() - 1] == L';')
+        str.erase(str.size() - 1, 1);
+    mstr_trim(str, L" \t\r\n");
+    if (str.size() && str[0] == L'{')
+        str.erase(0, 1);
+    else
+        return FALSE;
+    mstr_trim(str, L" \t\r\n");
+    if (str.size() && str[str.size() - 1] == L'}')
+        str.erase(str.size() - 1, 1);
+    else
+        return FALSE;
+    mstr_trim(str, L" \t\r\n");
+    if (str.size() && str[str.size() - 1] == L'}')
+        str.erase(str.size() - 1, 1);
+    else
+        return FALSE;
 
-    mstr_replace_all(arg, L" ", L"");
-    mstr_replace_all(arg, L"\t", L"");
+    mstr_replace_all(str, L" ", L"");
+    mstr_replace_all(str, L"\t", L"");
 
-    auto ich0 = arg.find(L',');
-    if (ich0 != arg.npos)
+    auto ich0 = str.find(L',');
+    if (ich0 != str.npos)
     {
-        auto ich1 = arg.find(L',', ich0 + 1);
-        if (ich1 != arg.npos)
+        auto ich1 = str.find(L',', ich0 + 1);
+        if (ich1 != str.npos)
         {
-            auto ich2 = arg.find(L',', ich1 + 1);
-            if (ich2 == arg.npos || arg[ich2 + 1] != L'{')
+            auto ich2 = str.find(L',', ich1 + 1);
+            if (ich2 == str.npos || str[ich2 + 1] != L'{')
                 return FALSE;
 
-            arg.erase(ich2 + 1, 1);
+            str.erase(ich2 + 1, 1);
         }
         else
         {
@@ -143,7 +179,7 @@ BOOL getGUIDFromStructStr(GUID& guid, std::wstring arg)
     }
 
     std::vector<std::wstring> items;
-    mstr_split(items, arg, L",");
+    mstr_split(items, str, L",");
 
     if (items.size() != 11)
         return FALSE;
@@ -168,26 +204,40 @@ BOOL getGUIDFromStructStr(GUID& guid, std::wstring arg)
     return TRUE;
 }
 
-BOOL getGUIDFromDefineGUID(GUID& guid, std::wstring arg, std::wstring *pstrName)
+BOOL getGUIDFromDefineGUID(GUID& guid, std::wstring str, std::wstring *pstrName = NULL)
 {
-    mstr_trim(arg, L" \t");
-    if (arg.find(L"DEFINE_GUID") == 0)
-        arg.erase(0, 11);
-    mstr_trim(arg, L" \t");
-    if (arg.size() && arg[0] == L'(')
-        arg.erase(0, 1);
-    mstr_trim(arg, L" \t");
-    if (arg.size() && arg[arg.size() - 1] == L';')
-        arg.erase(arg.size() - 1, 1);
-    mstr_trim(arg, L" \t");
-    if (arg.size() && arg[arg.size() - 1] == L')')
-        arg.erase(arg.size() - 1, 1);
-    mstr_trim(arg, L" \t");
-    mstr_replace_all(arg, L" ", L"");
-    mstr_replace_all(arg, L"\t", L"");
+    mstr_trim(str, L" \t\r\n");
+
+    if (str.find(L"DEFINE_GUID") == 0)
+        str.erase(0, 11);
+    else
+        return FALSE;
+
+    mstr_trim(str, L" \t\r\n");
+
+    if (str.size() && str[0] == L'(')
+        str.erase(0, 1);
+    else
+        return FALSE;
+
+    mstr_trim(str, L" \t\r\n");
+
+    if (str.size() && str[str.size() - 1] == L';')
+        str.erase(str.size() - 1, 1);
+
+    mstr_trim(str, L" \t\r\n");
+
+    if (str.size() && str[str.size() - 1] == L')')
+        str.erase(str.size() - 1, 1);
+    else
+        return FALSE;
+
+    mstr_trim(str, L" \t\r\n");
+    mstr_replace_all(str, L" ", L"");
+    mstr_replace_all(str, L"\t", L"");
 
     std::vector<std::wstring> items;
-    mstr_split(items, arg, L",");
+    mstr_split(items, str, L",");
 
     if (items.size() != 12)
         return FALSE;
@@ -215,15 +265,15 @@ BOOL getGUIDFromDefineGUID(GUID& guid, std::wstring arg, std::wstring *pstrName)
     return TRUE;
 }
 
-BOOL getGUIDFromBytesText(GUID& guid, std::wstring arg)
+BOOL getGUIDFromBytesText(GUID& guid, std::wstring str)
 {
-    mstr_replace_all(arg, L"0x", L"");
+    mstr_replace_all(str, L"0x", L"");
 
     CLSID ret;
     std::vector<BYTE> bytes;
     WCHAR sz[3];
     size_t ich = 0, ib = 0;
-    for (auto ch : arg)
+    for (auto ch : str)
     {
         if (!iswxdigit(ch))
             continue;
@@ -273,22 +323,21 @@ std::wstring getStructFromGUID(REFGUID guid)
     return sz;
 }
 
-std::wstring getAnalysisStringFromGUID(REFCLSID guid, LPCWSTR name)
+std::wstring getDumpFromGUID(REFGUID guid, LPCWSTR name)
 {
-    std::wstring ret;
-    if (name[0] == 0)
+    if (name && name[0] == 0)
         name = NULL;
 
-    ret += L"#include <initguid.h>\n\n";
+    std::wstring ret;
 
     auto define_guid = getDefineGUIDFromGUID(guid, name);
     ret += define_guid;
     ret += L"\n\n";
 
-    WCHAR szCLSID[40];
-    StringFromGUID2(guid, szCLSID, _countof(szCLSID));
+    WCHAR szGUID[40];
+    StringFromGUID2(guid, szGUID, _countof(szGUID));
     ret += L"GUID: ";
-    ret += szCLSID;
+    ret += szGUID;
     ret += L"\n\n";
 
     auto strBytes = getBytesTextFromGUID(guid);
@@ -315,13 +364,7 @@ void RandomData(T_DATA& data)
     }
 }
 
-typedef struct tagENTRY
-{
-    std::wstring name;
-    GUID guid;
-} ENTRY, *PENTRY;
-
-BOOL readAllGUIDs(std::vector<ENTRY>& entries)
+BOOL readGUIDs(ENTRIES& entries)
 {
     WCHAR szPath[MAX_PATH];
     GetModuleFileNameW(NULL, szPath, _countof(szPath));
@@ -331,7 +374,7 @@ BOOL readAllGUIDs(std::vector<ENTRY>& entries)
     FILE *fp = _wfopen(szPath, L"r");
     if (!fp)
     {
-        fprintf(stderr, "WARNING: Cannot load %ls\n", szPath);
+        fprintf(stderr, "WARNING: Cannot read file %ls\n", szPath);
         return FALSE;
     }
 
@@ -359,12 +402,16 @@ BOOL readAllGUIDs(std::vector<ENTRY>& entries)
     return TRUE;
 }
 
-BOOL getByName(ENTRY& found, const std::vector<ENTRY>& entries, LPCWSTR pszName)
+BOOL getEntryByName(ENTRY& found, const ENTRIES& entries, std::wstring name)
 {
-    std::vector<ENTRY> got;
+    ::CharUpperW(&name[0]);
+
     for (auto& entry : entries)
     {
-        if (lstrcmpiW(entry.name.c_str(), pszName) == 0)
+        std::wstring entry_name = entry.name;
+        ::CharUpperW(&entry_name[0]);
+
+        if (lstrcmpiW(entry_name.c_str(), name.c_str()) == 0)
         {
             found = entry;
             return TRUE;
@@ -374,9 +421,8 @@ BOOL getByName(ENTRY& found, const std::vector<ENTRY>& entries, LPCWSTR pszName)
     return FALSE;
 }
 
-BOOL doFilterByGuid(std::vector<ENTRY>& entries, const GUID& guid)
+BOOL getEntriesByGuid(ENTRIES& got, const ENTRIES& entries, const GUID& guid)
 {
-    std::vector<ENTRY> got;
     for (auto& entry : entries)
     {
         if (IsEqualGUID(entry.guid, guid))
@@ -385,57 +431,73 @@ BOOL doFilterByGuid(std::vector<ENTRY>& entries, const GUID& guid)
         }
     }
 
-    entries = std::move(got);
-    return !entries.empty();
+    return !got.empty();
 }
 
-BOOL doFilterByString(std::vector<ENTRY>& entries, std::wstring text)
+BOOL getEntriesByString(ENTRIES& found, const ENTRIES& entries, std::wstring text)
 {
     ::CharUpperW(&text[0]);
 
-    std::vector<ENTRY> got;
     for (auto& entry : entries)
     {
         auto str = getDefineGUIDFromGUID(entry.guid, entry.name.c_str());
         ::CharUpperW(&str[0]);
+
         if (str.find(text) != str.npos)
         {
-            got.push_back(entry);
+            found.push_back(entry);
             continue;
         }
+
         str = getBytesTextFromGUID(entry.guid);
         ::CharUpperW(&str[0]);
+
         if (str.find(text) != str.npos)
         {
-            got.push_back(entry);
+            found.push_back(entry);
             continue;
         }
     }
 
-    entries = std::move(got);
-    return !entries.empty();
+    return !found.empty();
 }
 
-BOOL IsHexGuidLikely(std::wstring arg)
+BOOL isHexGuid(std::wstring str)
 {
-    mstr_trim(arg, L" \t\r\n");
-    mstr_replace_all(arg, L"0x", L"");
+    mstr_trim(str, L" \t\r\n");
+    mstr_replace_all(str, L"0x", L"");
+    mstr_replace_all(str, L",", L"");
+    mstr_replace_all(str, L" ", L"");
+    mstr_replace_all(str, L"\t", L"");
 
-    if (arg.size() < 32)
+    if (str.size() != 32)
         return FALSE;
 
-    for (auto& ch : arg)
+    for (auto& ch : str)
     {
-        if (iswxdigit(ch))
-            continue;
-        if (ch == L',')
-            continue;
-        if (ch == L' ' || ch == L'\t')
-            continue;
-        return FALSE;
+        if (!iswxdigit(ch))
+            return FALSE;
     }
 
     return TRUE;
+}
+
+BOOL isGUIDString(LPCWSTR pszGUID)
+{
+    GUID guid;
+    return CLSIDFromString(pszGUID, &guid) == S_OK;
+}
+
+BOOL isGUIDStruct(LPCWSTR pszGUID)
+{
+    GUID guid;
+    return getGUIDFromStructStr(guid, pszGUID);
+}
+
+BOOL isDefineGUID(LPCWSTR pszGUID)
+{
+    GUID guid;
+    return getGUIDFromDefineGUID(guid, pszGUID, NULL);
 }
 
 void refguid_unittest(void)
@@ -443,163 +505,286 @@ void refguid_unittest(void)
 #ifndef NDEBUG
     GUID guid = IID_IShellLinkW;
 
-    std::vector<ENTRY> entries;
-    assert(readAllGUIDs(entries));
+    ENTRIES entries;
+    assert(readGUIDs(entries));
 
-    ENTRY found;
-    assert(getByName(found, entries, L"IID_IShellLinkW"));
-    assert(found.name == L"IID_IShellLinkW");
-    assert(IsEqualGUID(found.guid, IID_IShellLinkW));
+    ENTRY entry;
+    assert(getEntryByName(entry, entries, L"IID_IShellLinkW"));
+    assert(entry.name == L"IID_IShellLinkW");
+    assert(IsEqualGUID(entry.guid, IID_IShellLinkW));
 
-    assert(readAllGUIDs(entries));
-    assert(doFilterByGuid(entries, guid));
-    assert(entries.size() > 1);
-    assert(entries[0].name == L"IID_IShellLinkW");
-    assert(IsEqualGUID(entries[0].guid, IID_IShellLinkW));
+    ENTRIES got;
+    assert(getEntriesByGuid(got, entries, guid));
+    assert(got.size() > 1);
+    assert(got[0].name == L"IID_IShellLinkW");
+    assert(IsEqualGUID(got[0].guid, IID_IShellLinkW));
 
     auto define_guid = getDefineGUIDFromGUID(guid, NULL);
     assert(define_guid ==
         L"DEFINE_GUID(<Name>, 0x000214F9, 0x0000, 0x0000, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);");
+    assert(isDefineGUID(define_guid.c_str()));
 
-    WCHAR szCLSID[40];
-    StringFromGUID2(guid, szCLSID, _countof(szCLSID));
+    WCHAR szGUID[40];
+    StringFromGUID2(guid, szGUID, _countof(szGUID));
     std::wstring str = L"{000214F9-0000-0000-C000-000000000046}";
-    assert(str == szCLSID);
+    assert(str == szGUID);
+    assert(isGUIDString(str.c_str());
 
     auto strBytes = getBytesTextFromGUID(guid);
     assert(strBytes == L"F9 14 02 00 00 00 00 00 C0 00 00 00 00 00 00 46");
+    assert(isHexGuid(str.c_str());
 
     auto struct_str = getStructFromGUID(guid);
     assert(struct_str == L"{ 0x000214F9, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } }");
+    assert(isGUIDStruct(str.c_str());
 
     std::fprintf(stderr, "refguid_unittest: Success!\n\n");
 #endif
 }
 
-int _wmain(int argc, wchar_t **argv)
+RET refguid_do_guid(const ENTRIES& entries, REFGUID guid, std::wstring *pstrName = NULL)
 {
-    if (argc <= 1 || lstrcmpiW(argv[1], L"--help") == 0)
+    std::printf("\n--------------------\n");
+
+    std::wstring name;
+    if (pstrName == NULL)
     {
-        usage();
-        return 0;
-    }
-
-    if (lstrcmpiW(argv[1], L"--version") == 0)
-    {
-        show_version();
-        return 0;
-    }
-
-    std::wstring arg = argv[1];
-    mstr_trim(arg, L" \t\r\n");
-
-    if (argc >= 2 && argv[1][0] != '-')
-    {
-        for (int iarg = 2; iarg < argc; ++iarg)
-        {
-            arg += L" ";
-            arg += argv[iarg];
-        }
-    }
-    mstr_trim(arg, L" \t\r\n");
-
-    std::vector<ENTRY> entries;
-    if (!readAllGUIDs(entries))
-        return 1;
-
-    GUID guid = GUID_NULL;
-    std::wstring name = L"";
-    BOOL bSuccess = FALSE, bSearch = FALSE;
-
-    if (lstrcmpiW(arg.c_str(), L"--list") == 0)
-    {
+        BOOL found = FALSE;
         for (auto& entry : entries)
         {
-            auto define_guid = getDefineGUIDFromGUID(entry.guid, entry.name.c_str());
-            std::printf("%ls\n", define_guid.c_str());
+            if (IsEqualGUID(guid, entry.guid))
+            {
+                found = TRUE;
+                name = entry.name;
+                std::printf("Name: %ls\n", name.c_str());
+            }
         }
-        return 0;
-    }
-    else if (lstrcmpiW(arg.c_str(), L"--generate") == 0)
-    {
-        RandomData(guid);
-        bSuccess = TRUE;
-    }
-    else if (lstrcmpiW(arg.c_str(), L"--search") == 0)
-    {
-        if (!doFilterByString(entries, argv[2]))
+
+        if (found)
         {
-            std::puts("Not found\n");
-            return 1;
-        }
-        bSuccess = bSearch = TRUE;
-        if (entries.size() == 1)
-        {
-            bSearch = FALSE;
-            guid = entries[0].guid;
-            name = entries[0].name;
+            std::printf("\n");
+            pstrName = &name;
         }
     }
-    else if (arg[0] == L'{' && arg.find('{', 1) == arg.npos)
+
+    auto str = getDumpFromGUID(guid, (pstrName ? pstrName->c_str() : NULL));
+    std::printf("%ls", str.c_str());
+    name = name;
+    return RET_SUCCESS;
+}
+
+RET refguid_do_arg(const ENTRIES& entries, std::wstring str)
+{
+    mstr_trim(str, L" \t\r\n");
+
+    if (isGUIDString(str.c_str()))
     {
-        bSuccess = (CLSIDFromString(arg.c_str(), &guid) == S_OK);
+        GUID guid;
+        if (CLSIDFromString(str.c_str(), &guid) == S_OK)
+            return refguid_do_guid(entries, guid);
+        return RET_FAILED;
     }
-    else if (arg[0] == L'{' && arg.find('{', 1) != arg.npos)
+
+    if (isGUIDStruct(str.c_str()))
     {
-        bSuccess = getGUIDFromStructStr(guid, arg);
+        GUID guid;
+        if (getGUIDFromStructStr(guid, str))
+            return refguid_do_guid(entries, guid);
+        return RET_FAILED;
     }
-    else if (arg.find(L"DEFINE_GUID(") == 0)
+
+    if (isDefineGUID(str.c_str()))
     {
-        bSuccess = getGUIDFromDefineGUID(guid, arg, &name);
+        GUID guid;
+        std::wstring name;
+        if (getGUIDFromDefineGUID(guid, str, &name))
+            return refguid_do_guid(entries, guid, &name);
+        return RET_FAILED;
     }
-    else if (IsHexGuidLikely(arg))
+
+    if (isHexGuid(str))
     {
-        bSuccess = getGUIDFromBytesText(guid, arg);
+        GUID guid;
+        if (getGUIDFromBytesText(guid, str))
+            return refguid_do_guid(entries, guid);
+        return RET_FAILED;
+    }
+
+    if (!g_bSearch)
+    {
+        ENTRY entry;
+        if (getEntryByName(entry, entries, str))
+            return refguid_do_guid(entries, entry.guid, &entry.name);
+    }
+
+    ENTRIES found;
+    if (getEntriesByString(found, entries, str))
+    {
+        if (found.size() == 1)
+            return refguid_do_guid(entries, found[0].guid, &found[0].name);
     }
     else
     {
-        ENTRY entry;
-        bSuccess = getByName(entry, entries, arg.c_str());
-        if (bSuccess)
+        std::printf("Not found\n\n");
+        return RET_FAILED;
+    }
+
+    if (found.size() > 1)
+    {
+        std::printf("Found %d entries.\n", (int)found.size());
+    }
+
+    for (auto& item : found)
+    {
+        refguid_do_guid(entries, item.guid, &item.name);
+    }
+
+    return RET_SUCCESS;
+}
+
+RET parse_option(std::wstring str)
+{
+    if (str == L"--help")
+    {
+        usage();
+        return RET_DONE;
+    }
+
+    if (str == L"--version")
+    {
+        show_version();
+        return RET_DONE;
+    }
+
+    if (str == L"--list")
+    {
+        g_bList = TRUE;
+        return RET_SUCCESS;
+    }
+
+    if (str == L"--search")
+    {
+        g_bSearch = TRUE;
+        return RET_SUCCESS;
+    }
+
+    fprintf(stderr, "Invalid option: %ls\n", str.c_str());
+    return RET_FAILED;
+}
+
+BOOL IsIdentifier(LPCWSTR pszParam)
+{
+    if (pszParam[0] == 0)
+        return FALSE;
+
+    for (size_t ich = 0; pszParam[ich]; ++ich)
+    {
+        WCHAR ch = pszParam[ich];
+        if (ich == 0 && !iswalpha(ch) && ch != L'_')
+            return FALSE;
+        if (ich > 0 && !iswalnum(ch) && ch != L'_')
+            return FALSE;
+    }
+    return TRUE;
+}
+
+RET parse_cmd_line(std::vector<std::wstring>& args, int argc, wchar_t **argv)
+{
+    if (argc <= 1)
+    {
+        usage();
+        return RET_FAILED;
+    }
+
+    std::wstring param;
+
+    for (int iarg = 1; iarg < argc; ++iarg)
+    {
+        std::wstring str = argv[iarg];
+
+        if (str[0] == L'-')
         {
-            name = entry.name;
-            guid = entry.guid;
-        }
-        else if (!doFilterByString(entries, arg))
-        {
-            std::puts("Not found\n");
-            return 1;
-        }
-        else
-        {
-            bSuccess = bSearch = TRUE;
-            if (entries.size() == 1)
+            if (str == L"--generate")
             {
-                bSearch = FALSE;
-                guid = entries[0].guid;
-                name = entries[0].name;
+                if (argc <= iarg + 1)
+                    g_nGenerate = 1;
+                else
+                    g_nGenerate = _wtoi(argv[iarg + 1]);
+
+                if (g_nGenerate <= 0)
+                {
+                    fprintf(stderr, "ERROR: Zero or negative value specified for '--generate'\n");
+                    return RET_FAILED;
+                }
+
+                param.clear();
+                args.clear();
+                return RET_SUCCESS;
             }
+
+            switch (parse_option(str))
+            {
+            case RET_FAILED:
+                return RET_FAILED;
+            case RET_DONE:
+                return RET_DONE;
+            case RET_SUCCESS:
+                continue;
+            }
+        }
+
+        if (param.size())
+            param += L' ';
+
+        param += str;
+
+        if (isGUIDString(param.c_str()) || isGUIDStruct(param.c_str()) ||
+            isDefineGUID(param.c_str()) || isHexGuid(param.c_str()))
+        {
+            args.push_back(param);
+            param.clear();
+            continue;
+        }
+
+        if (IsIdentifier(param.c_str()) && param != L"DEFINE_GUID")
+        {
+            args.push_back(param);
+            param.clear();
+            continue;
         }
     }
 
-    std::fprintf(stderr,
-        "###########################\n"
-        "## refguid by katahiromz ##\n"
-        "###########################\n");
+    if (param.size())
+        args.push_back(param);
 
+    return RET_SUCCESS;
+}
+
+int _wmain(int argc, wchar_t **argv)
+{
 #ifndef NDEBUG
     refguid_unittest();
 #endif
 
-    if (!bSuccess || entries.empty())
-    {
-        std::printf("Not found\n");
+    std::vector<std::wstring> args;
+    RET ret = parse_cmd_line(args, argc, argv);
+    if (ret == RET_DONE)
+        return 0;
+    if (ret == RET_FAILED)
         return -1;
+
+    ENTRIES entries;
+    if (!readGUIDs(entries))
+        return -2;
+
+    if (entries.empty() && !g_bList && g_nGenerate == 0)
+    {
+        std::printf("ERROR: File refguid.dat was empty\n");
+        return -3;
     }
 
-    if (bSearch)
+    if (g_bList)
     {
-        printf("Found %d entries.\n", (int)entries.size());
         for (auto& entry : entries)
         {
             auto define_guid = getDefineGUIDFromGUID(entry.guid, entry.name.c_str());
@@ -607,20 +792,23 @@ int _wmain(int argc, wchar_t **argv)
         }
         return 0;
     }
-    else if (doFilterByGuid(entries, guid))
+
+    if (g_nGenerate > 0)
     {
-        for (auto& entry : entries)
+        for (INT i = 0; i < g_nGenerate; ++i)
         {
-            std::printf("Name: %ls\n", entry.name.c_str());
+            GUID guid;
+            RandomData(guid);
+            refguid_do_guid(entries, guid);
         }
-        std::puts("");
-        if (name.empty())
-            name = entries[0].name;
+        return 0;
     }
 
-    auto str = getAnalysisStringFromGUID(guid, name.c_str());
-    std::printf("%ls", str.c_str());
-    str = str;
+    for (auto& item : args)
+    {
+        if (refguid_do_arg(entries, item) == RET_FAILED)
+            return -4;
+    }
 
     return 0;
 }

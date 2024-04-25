@@ -20,7 +20,7 @@ INT g_nGenerate = 0;
 
 void show_version(void)
 {
-    std::puts("refguid version 1.9.0 by katahiromz");
+    std::puts("refguid version 1.9.1 by katahiromz");
 }
 
 void usage(void)
@@ -625,7 +625,7 @@ RET refguid_do_arg(const ENTRIES& entries, std::wstring str)
     }
     else
     {
-        std::printf("Not found\n\n");
+        std::printf("Not found\n");
         return RET_FAILED;
     }
 
